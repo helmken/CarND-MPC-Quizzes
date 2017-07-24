@@ -16,7 +16,8 @@
 #define STRINGIFY(x) STRINGIFY_(x)
 #include STRINGIFY(MATPLOTLIBCPP_PYTHON_HEADER)
 #else // This should stay the default for backwards compatibility
-#include <python2.7/Python.h>
+//#include <python2.7/Python.h>
+#include <python3.5/Python.h>
 #endif
 
 #if PY_MAJOR_VERSION >= 3
