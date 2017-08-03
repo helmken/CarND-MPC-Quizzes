@@ -3,6 +3,7 @@
 
 
 #include <cppad/cppad.hpp>
+#include "Eigen-3.3/Eigen/Core"
 #include <cppad/ipopt/solve.hpp>
 
 
@@ -12,8 +13,6 @@ using CppAD::AD;
 // Prediction horizon T = numTimeSteps * dt
 // const size_t numTimeSteps = 25; // suggested in solution of quiz
 // const double dt = 0.05; // suggested in solution of quiz
-//const size_t numTimeSteps = 25;
-//const double dt = 0.05;
 const size_t numTimeSteps = 10;
 const double dt = 0.1;
 
@@ -75,29 +74,29 @@ public:
         // any anything you think may be beneficial.
 
         // The part of the cost based on the reference state.
-        for (size_t t(0); t < numTimeSteps; ++t)
+        for (size_t i(0); i < numTimeSteps; ++i)
         {
-            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxCTErr + t], 2);
-            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxPsiErr + t], 2);
-            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxV + t] - refVel, 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxCTErr + i], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxPsiErr + i], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxV + i] - refVel, 2);
         }
 
         // Minimize the use of actuators.
-        for (size_t t(0); t < numTimeSteps - 1; ++t)
+        for (size_t i(0); i < numTimeSteps - 1; ++i)
         {
-            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxDelta + t], 2);
-            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxA + t], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxDelta + i], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxA + i], 2);
         }
 
         // Minimize the value gap between sequential actuations.
-        for (size_t t(0); t < numTimeSteps - 2; ++t)
+        for (size_t i(0); i < numTimeSteps - 2; ++i)
         {
             costAndConstraints[0] += 500 * CppAD::pow(
-                  stateAndActuators[startIdxDelta + t + 1] 
-                - stateAndActuators[startIdxDelta + t], 2);
+                  stateAndActuators[startIdxDelta + i + 1] 
+                - stateAndActuators[startIdxDelta + i], 2);
             costAndConstraints[0] += CppAD::pow(
-                  stateAndActuators[startIdxA + t + 1] 
-                - stateAndActuators[startIdxA + t], 2);
+                  stateAndActuators[startIdxA + i + 1] 
+                - stateAndActuators[startIdxA + i], 2);
         }
 
         // setup model constraints
@@ -115,28 +114,29 @@ public:
         costAndConstraints[1 + startIdxPsiErr] =    stateAndActuators[startIdxPsiErr];
 
         // The rest of the constraints
-        for (size_t t(1); t < numTimeSteps; ++t)
+        for (size_t i(0); i < numTimeSteps - 1; ++i)
         {
             // The state at time t+1.
-            AD<double> x1 =         stateAndActuators[startIdxX + t];
-            AD<double> y1 =         stateAndActuators[startIdxY + t];
-            AD<double> psi1 =       stateAndActuators[startIdxPsi + t];
-            AD<double> v1 =         stateAndActuators[startIdxV + t];
-            AD<double> ctErr1 =     stateAndActuators[startIdxCTErr + t];
-            AD<double> psiErr1 =    stateAndActuators[startIdxPsiErr + t];
+            AD<double> x1 =         stateAndActuators[startIdxX + i + 1];
+            AD<double> y1 =         stateAndActuators[startIdxY + i + 1];
+            AD<double> psi1 =       stateAndActuators[startIdxPsi + i + 1];
+            AD<double> v1 =         stateAndActuators[startIdxV + i + 1];
+            AD<double> ctErr1 =     stateAndActuators[startIdxCTErr + i + 1];
+            AD<double> psiErr1 =    stateAndActuators[startIdxPsiErr + i + 1];
 
             // The state at time t.
-            AD<double> x0 =         stateAndActuators[startIdxX + t - 1];
-            AD<double> y0 =         stateAndActuators[startIdxY + t - 1];
-            AD<double> psi0 =       stateAndActuators[startIdxPsi + t - 1];
-            AD<double> v0 =         stateAndActuators[startIdxV + t - 1];
-            AD<double> ctErr0 =     stateAndActuators[startIdxCTErr + t - 1];
-            AD<double> psiErr0 =    stateAndActuators[startIdxPsiErr + t - 1];
+            AD<double> x0 =         stateAndActuators[startIdxX + i];
+            AD<double> y0 =         stateAndActuators[startIdxY + i];
+            AD<double> psi0 =       stateAndActuators[startIdxPsi + i];
+            AD<double> v0 =         stateAndActuators[startIdxV + i];
+            AD<double> ctErr0 =     stateAndActuators[startIdxCTErr + i];
+            AD<double> psiErr0 =    stateAndActuators[startIdxPsiErr + i];
 
             // Only consider the actuation at time t.
-            AD<double> delta0 =     stateAndActuators[startIdxDelta + t - 1];
-            AD<double> a0 =         stateAndActuators[startIdxA + t - 1];
+            AD<double> delta0 =     stateAndActuators[startIdxDelta + i];
+            AD<double> a0 =         stateAndActuators[startIdxA + i];
 
+            // calculate value of polynomial
             AD<double> f0 =         m_fittedPolyCoeffs[0] + m_fittedPolyCoeffs[1] * x0;
             AD<double> psiDes0 =    CppAD::atan(m_fittedPolyCoeffs[1]);
 
@@ -159,13 +159,13 @@ public:
             // it is inforced that the difference is zero, otherwise the solver would do weird stuff
             // CppAD calculates gradients
 
-            costAndConstraints[1 + startIdxX + t] =         x1 -        (x0 +   v0 * CppAD::cos(psi0) * dt);
-            costAndConstraints[1 + startIdxY + t] =         y1 -        (y0 +   v0 * CppAD::sin(psi0) * dt);
-            costAndConstraints[1 + startIdxPsi + t] =       psi1 -      (psi0 + v0 * delta0 / Lf * dt);
-            costAndConstraints[1 + startIdxV + t] =         v1 -        (v0 +   a0 * dt);
+            costAndConstraints[startIdxX + i + 2] =         x1 -        (x0 +   v0 * CppAD::cos(psi0) * dt);
+            costAndConstraints[startIdxY + i + 2] =         y1 -        (y0 +   v0 * CppAD::sin(psi0) * dt);
+            costAndConstraints[startIdxPsi + i + 2] =       psi1 -      (psi0 + v0 * delta0 / Lf * dt);
+            costAndConstraints[startIdxV + i + 2] =         v1 -        (v0 +   a0 * dt);
             
-            costAndConstraints[1 + startIdxCTErr + t] =     ctErr1 -    ((f0 - y0) + (v0 * CppAD::sin(psiErr0) * dt));
-            costAndConstraints[1 + startIdxPsiErr + t] =    psiErr1 -   ((psi0 - psiDes0) + v0 * delta0 / Lf * dt);
+            costAndConstraints[startIdxCTErr + i + 2] =     ctErr1 -    ((f0 - y0) + (v0 * CppAD::sin(psiErr0) * dt));
+            costAndConstraints[startIdxPsiErr + i + 2] =    psiErr1 -   ((psi0 - psiDes0) + v0 * delta0 / Lf * dt);
         }
     }
 };

@@ -1,27 +1,38 @@
-#include "MPC.h"
-#include <math.h>
-#include <cppad/cppad.hpp>
 #include "FG_eval.h"
+#include "MPC.h"
+#include <cppad/cppad.hpp>
+#include "Eigen-3.3/Eigen/Core"
+#include <math.h>
 
+
+
+using namespace std;
+using CppAD::AD;
 
 
 //
-// MPC class definition
+// MPC class implementation.
 //
 
-MPC::MPC() {}
-MPC::~MPC() {}
+MPC::MPC() 
+{
+}
 
-vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs) 
+MPC::~MPC() 
+{
+}
+
+
+vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd fittedPolyCoeffs) 
 {
     typedef CPPAD_TESTVECTOR(double) Dvector;
 
-    const double x =      x0[0];
-    const double y =      x0[1];
-    const double psi =    x0[2];
-    const double v =      x0[3];
-    const double ctErr =  x0[4];
-    const double psiErr = x0[5];
+    const double x =      state[0];
+    const double y =      state[1];
+    const double psi =    state[2];
+    const double v =      state[3];
+    const double ctErr =  state[4];
+    const double psiErr = state[5];
 
     // number of independent variables
     // numTimeSteps -> numTimeSteps - 1 actuations
@@ -31,7 +42,7 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs)
     // Initial value of the independent variables.
     // Should be 0 except for the initial values.
     Dvector indepVars(numIndepVars);
-    for (int i(0); i < numIndepVars; ++i)
+    for (size_t i(0); i < numIndepVars; ++i)
     {
         indepVars[i] = 0.0;
     }
@@ -51,10 +62,10 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs)
     Dvector lowerBoundsOfVars(numIndepVars);
     Dvector upperBoundsOfVars(numIndepVars);
 
-    // Set all non-actuators upper and lowerlimits
+    // Set all non-actuators upper and lower limits
     // to the max negative and positive values.
-    // x, y, psi, v, ctErr, psiErr
-    for (size_t i(0); i < startIdxDelta; ++i) 
+    // setting limits for x, y, psi, v, ctErr, psiErr
+    for (size_t i(0); i < startIdxDelta; ++i)
     {
         lowerBoundsOfVars[i] = -1.0e19;
         upperBoundsOfVars[i] = 1.0e19;
@@ -91,6 +102,8 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs)
         upperBoundsOfConstraints[i] = 0;
     }
 
+    // constraints for initial state, otherwise the solver doesn't 
+    // know where to start from
     lowerBoundsOfConstraints[startIdxX] =       x;
     lowerBoundsOfConstraints[startIdxY] =       y;
     lowerBoundsOfConstraints[startIdxPsi] =     psi;
@@ -109,14 +122,27 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs)
     cout << "lowerBoundsOfConstraints: " << lowerBoundsOfConstraints << "\n";
     cout << "upperBoundsOfConstraints: " << upperBoundsOfConstraints << "\n";
 
-    // Object that computes objective and constraints
-    FG_eval fg_eval(coeffs);
+    // object that computes objective and constraints
+    FG_eval fg_eval(fittedPolyCoeffs);
 
-    // options
+    // NOTE: You don't have to worry about these options
+    // options for IPOPT solver
+
     std::string options;
+    // Uncomment this if you'd like more print information
     options += "Integer print_level  0\n";
+    // NOTE: Setting sparse to true allows the solver to take advantage
+    // of sparse routines, this makes the computation MUCH FASTER. If you
+    // can uncomment 1 of these and see if it makes a difference or not but
+    // if you uncomment both the computation time should go up in orders of
+    // magnitude.
     options += "Sparse  true        forward\n";
     options += "Sparse  true        reverse\n";
+    
+    // NOTE: Currently the solver has a maximum time limit of 0.5 seconds.
+    // Change this as you see fit.
+    // TODO: if N is set to a larger value, max_cpu_time has to be increased
+    options += "Numeric max_cpu_time          0.5\n"; 
 
     // place to return solution
     CppAD::ipopt::solve_result<Dvector> solution;
@@ -132,11 +158,18 @@ vector<double> MPC::Solve(Eigen::VectorXd x0, Eigen::VectorXd coeffs)
     //bool ok = true;
     //ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
 
+    // Cost
     auto cost = solution.obj_value;
     std::cout << "Cost " << cost << std::endl;
 
     cout << "solution size: " << solution.x.size() << ", solution: " << solution.x << "\n";
-    
+
+    // TODO: Return the first actuator values. The variables can be accessed with
+    // `solution.x[i]`.
+    //
+    // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
+    // creates a 2 element double vector.
+
     return { solution.x[startIdxX + 1], solution.x[startIdxY + 1],
             solution.x[startIdxPsi + 1], solution.x[startIdxV + 1],
             solution.x[startIdxCTErr + 1], solution.x[startIdxPsiErr + 1],

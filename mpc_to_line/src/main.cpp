@@ -5,6 +5,8 @@
 
 
 namespace plt = matplotlibcpp;
+using namespace std;
+
 
 //
 // Helper functions to fit and evaluate polynomials.
