@@ -10,6 +10,8 @@ set(CXX_FLAGS "-Wall")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
 set(sources
+	src/FG_eval.h
+	src/main.cpp
 	src/matplotlibcpp.h
 	src/MPC.cpp
 	src/MPC.h

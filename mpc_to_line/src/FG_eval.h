@@ -1,0 +1,173 @@
+#ifndef FG_EVAL_H
+#define FG_EVAL_H
+
+
+#include <cppad/cppad.hpp>
+#include <cppad/ipopt/solve.hpp>
+
+
+using CppAD::AD;
+
+
+// Prediction horizon T = numTimeSteps * dt
+// const size_t numTimeSteps = 25; // suggested in solution of quiz
+// const double dt = 0.05; // suggested in solution of quiz
+//const size_t numTimeSteps = 25;
+//const double dt = 0.05;
+const size_t numTimeSteps = 10;
+const double dt = 0.1;
+
+const size_t dimState(6);
+const size_t dimActuator(2);
+
+// NOTE: feel free to play around with this
+// or do something completely different
+const double refVel(40);
+
+// This value assumes the model presented in the classroom is used.
+//
+// It was obtained by measuring the radius formed by running the vehicle in
+// the simulator around in a circle with a constant steering angle and
+// velocity on a flat terrain.
+//
+// Lf was tuned until the the radius formed by the simulating the model
+// presented in the classroom matched the previous radius.
+//
+// This is the length from front to CoG (Center of Gravity?) that has a
+// similar radius.
+const double Lf = 2.67;
+
+// The solver takes all the state variables and actuator variables in a
+// singular vector. Thus, we should to establish when one variable starts and
+// another ends to make our lifes easier.
+const size_t startIdxX =        0;
+const size_t startIdxY =        startIdxX + numTimeSteps;
+const size_t startIdxPsi =      startIdxY + numTimeSteps;
+const size_t startIdxV =        startIdxPsi + numTimeSteps;
+const size_t startIdxCTErr =    startIdxV + numTimeSteps;
+const size_t startIdxPsiErr =   startIdxCTErr + numTimeSteps;
+
+// control vector has N - 1 values for each dimension
+size_t startIdxDelta =          startIdxPsiErr + numTimeSteps;
+size_t startIdxA =              startIdxDelta + numTimeSteps - 1;
+
+class FG_eval
+{
+public:
+    // Fitted polynomial coefficients
+    Eigen::VectorXd m_fittedPolyCoeffs;
+
+    FG_eval(Eigen::VectorXd coeffs)
+    {
+        m_fittedPolyCoeffs = coeffs;
+    }
+
+    typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
+
+    void operator()(ADvector& costAndConstraints, const ADvector& stateAndActuators)
+    {
+        // The cost is stored is the first element of `costAndConstraints`.
+        // Any additions to the cost should be added to `costAndConstraints[0]`.
+        costAndConstraints[0] = 0;
+
+        // Reference State Cost
+        // TODO: Define the cost related the reference state and
+        // any anything you think may be beneficial.
+
+        // The part of the cost based on the reference state.
+        for (size_t t(0); t < numTimeSteps; ++t)
+        {
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxCTErr + t], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxPsiErr + t], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxV + t] - refVel, 2);
+        }
+
+        // Minimize the use of actuators.
+        for (size_t t(0); t < numTimeSteps - 1; ++t)
+        {
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxDelta + t], 2);
+            costAndConstraints[0] += CppAD::pow(stateAndActuators[startIdxA + t], 2);
+        }
+
+        // Minimize the value gap between sequential actuations.
+        for (size_t t(0); t < numTimeSteps - 2; ++t)
+        {
+            costAndConstraints[0] += 500 * CppAD::pow(
+                  stateAndActuators[startIdxDelta + t + 1] 
+                - stateAndActuators[startIdxDelta + t], 2);
+            costAndConstraints[0] += CppAD::pow(
+                  stateAndActuators[startIdxA + t + 1] 
+                - stateAndActuators[startIdxA + t], 2);
+        }
+
+        // setup model constraints
+
+        // We add 1 to each of the starting indices due to cost being located at
+        // index 0 of `costAndConstraints`.
+        // This bumps up the position of all the other values.
+
+        // initial constraints
+        costAndConstraints[1 + startIdxX] =         stateAndActuators[startIdxX];
+        costAndConstraints[1 + startIdxY] =         stateAndActuators[startIdxY];
+        costAndConstraints[1 + startIdxPsi] =       stateAndActuators[startIdxPsi];
+        costAndConstraints[1 + startIdxV] =         stateAndActuators[startIdxV];
+        costAndConstraints[1 + startIdxCTErr] =     stateAndActuators[startIdxCTErr];
+        costAndConstraints[1 + startIdxPsiErr] =    stateAndActuators[startIdxPsiErr];
+
+        // The rest of the constraints
+        for (size_t t(1); t < numTimeSteps; ++t)
+        {
+            // The state at time t+1.
+            AD<double> x1 =         stateAndActuators[startIdxX + t];
+            AD<double> y1 =         stateAndActuators[startIdxY + t];
+            AD<double> psi1 =       stateAndActuators[startIdxPsi + t];
+            AD<double> v1 =         stateAndActuators[startIdxV + t];
+            AD<double> ctErr1 =     stateAndActuators[startIdxCTErr + t];
+            AD<double> psiErr1 =    stateAndActuators[startIdxPsiErr + t];
+
+            // The state at time t.
+            AD<double> x0 =         stateAndActuators[startIdxX + t - 1];
+            AD<double> y0 =         stateAndActuators[startIdxY + t - 1];
+            AD<double> psi0 =       stateAndActuators[startIdxPsi + t - 1];
+            AD<double> v0 =         stateAndActuators[startIdxV + t - 1];
+            AD<double> ctErr0 =     stateAndActuators[startIdxCTErr + t - 1];
+            AD<double> psiErr0 =    stateAndActuators[startIdxPsiErr + t - 1];
+
+            // Only consider the actuation at time t.
+            AD<double> delta0 =     stateAndActuators[startIdxDelta + t - 1];
+            AD<double> a0 =         stateAndActuators[startIdxA + t - 1];
+
+            AD<double> f0 =         m_fittedPolyCoeffs[0] + m_fittedPolyCoeffs[1] * x0;
+            AD<double> psiDes0 =    CppAD::atan(m_fittedPolyCoeffs[1]);
+
+            // NOTE: The use of `AD<double>` and use of `CppAD`!
+            // This is also CppAD can compute derivatives and pass
+            // these to the solver.
+
+            // TODO: Setup the rest of the model constraints
+            // Recall the equations for the model:
+            // x_[t+1] =    x[t] +      v[t] * cos(psi[t]) * dt
+            // y_[t+1] =    y[t] +      v[t] * sin(psi[t]) * dt
+            // psi_[t+1] =  psi[t] +    v[t] / Lf * delta[t] * dt
+            // v_[t+1] =    v[t] +      a[t] * dt
+            // cte[t+1] =   f(x[t]) -   y[t] + v[t] * sin(epsi[t]) * dt
+            // epsi[t+1] =  psi[t] -    psides[t] + v[t] * delta[t] / Lf * dt
+
+            // the idea here is to constraint this value to be 0
+            // TODO: setup the rest of the model constraints
+            // scheme: (value_at_t_+_1) - (value_at_t + rate_of_change)
+            // it is inforced that the difference is zero, otherwise the solver would do weird stuff
+            // CppAD calculates gradients
+
+            costAndConstraints[1 + startIdxX + t] =         x1 -        (x0 +   v0 * CppAD::cos(psi0) * dt);
+            costAndConstraints[1 + startIdxY + t] =         y1 -        (y0 +   v0 * CppAD::sin(psi0) * dt);
+            costAndConstraints[1 + startIdxPsi + t] =       psi1 -      (psi0 + v0 * delta0 / Lf * dt);
+            costAndConstraints[1 + startIdxV + t] =         v1 -        (v0 +   a0 * dt);
+            
+            costAndConstraints[1 + startIdxCTErr + t] =     ctErr1 -    ((f0 - y0) + (v0 * CppAD::sin(psiErr0) * dt));
+            costAndConstraints[1 + startIdxPsiErr + t] =    psiErr1 -   ((psi0 - psiDes0) + v0 * delta0 / Lf * dt);
+        }
+    }
+};
+
+#endif // FG_EVAL_H
